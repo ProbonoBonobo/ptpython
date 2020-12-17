@@ -261,6 +261,9 @@ class PythonInput:
         self.highlight_matching_parenthesis: bool = False
         self.show_sidebar: bool = False  # Currently show the sidebar.
 
+        # Pager.
+        self.use_pager_for_big_outputs: bool = False
+
         # When the sidebar is visible, also show the help text.
         self.show_sidebar_help: bool = True
 
@@ -734,6 +737,11 @@ class PythonInput:
                         title="Highlight parenthesis",
                         description="Highlight matching parenthesis, when the cursor is on or right after one.",
                         field_name="highlight_matching_parenthesis",
+                    ),
+                    simple_option(
+                        title="Pager for big outputs",
+                        description="Use a pager for displaying bigger outputs if they don't fit on the screen.",
+                        field_name="use_pager_for_big_outputs",
                     ),
                 ],
             ),

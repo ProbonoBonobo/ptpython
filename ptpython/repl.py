@@ -9,12 +9,14 @@ Utility for creating a Python repl.
 """
 import asyncio
 import builtins
+import math
 import os
 import sys
 import traceback
 import warnings
-from typing import Any, Callable, ContextManager, Dict, Optional
+from typing import Any, Callable, ContextManager, Dict, List, Optional
 
+import pypager
 from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import (
     FormattedText,
@@ -107,12 +109,12 @@ class PythonRepl(PythonInput):
                 # Abort - try again.
                 self.default_buffer.document = Document()
             else:
-                self._process_text(text)
+                await self._process_text(text)
 
         if self.terminal_title:
             clear_title()
 
-    def _process_text(self, line: str) -> None:
+    async def _process_text(self, line: str) -> None:
 
         if line and not line.isspace():
             if self.insert_blank_line_after_input:
@@ -120,7 +122,7 @@ class PythonRepl(PythonInput):
 
             try:
                 # Eval and print.
-                self._execute(line)
+                await self._execute(line)
             except KeyboardInterrupt as e:  # KeyboardInterrupt doesn't inherit from Exception.
                 self._handle_keyboard_interrupt(e)
             except Exception as e:
@@ -132,7 +134,7 @@ class PythonRepl(PythonInput):
             self.current_statement_index += 1
             self.signatures = []
 
-    def _execute(self, line: str) -> None:
+    async def _execute(self, line: str) -> None:
         """
         Evaluate the line and print the result.
         """
@@ -173,13 +175,13 @@ class PythonRepl(PythonInput):
                 locals["_"] = locals["_%i" % self.current_statement_index] = result
 
                 if result is not None:
-                    self.show_result(result)
+                    await self.show_result(result)
             # If not a valid `eval` expression, run using `exec` instead.
             except SyntaxError:
                 code = compile_with_flags(line, "exec")
                 exec(code, self.get_globals(), self.get_locals())
 
-    def show_result(self, result: object) -> None:
+    async def show_result(self, result: object) -> None:
         """
         Show __repr__ for an `eval` result.
         """
@@ -214,6 +216,16 @@ class PythonRepl(PythonInput):
 
         lines = list(split_lines(formatted_result_repr))
 
+        if self.use_pager_for_big_outputs and not self._fits_on_the_screen(lines):
+            print("show pager")
+            pager = pypager.Pager()
+            source_info = pager.add_source(
+                pypager.FormattedTextSource(formatted_result_repr)
+            )
+            source_info.wrap_lines = True
+            await pager.run_async()
+            return
+
         for i, fragment in enumerate(lines):
             indented_repr.extend(fragment)
 
@@ -237,6 +249,26 @@ class PythonRepl(PythonInput):
             output=self.app.output,
         )
         self.app.output.flush()
+
+    def _fits_on_the_screen(self, lines: List[StyleAndTextTuples]) -> bool:
+        """
+        Tell whether this output fits on the screen or not.
+        (If not we should probably use a pager.)
+        """
+        size = self.app.output.get_size()
+
+        # Too many rows?
+        if len(lines) > size.rows:
+            return False
+
+        # Doesn not fit if we get too many lines after wrapping them.
+        wrapped_line_count = 0
+        for line in lines:
+            wrapped_line_count += math.ceil(fragment_list_width(line) / size.columns)
+            if wrapped_line_count > size.rows:
+                return False
+
+        return True
 
     def _handle_exception(self, e: Exception) -> None:
         output = self.app.output
